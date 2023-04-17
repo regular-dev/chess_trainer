@@ -1,0 +1,7 @@
+/target
+*.pb
+*.txt
+Cargo.lock
+/util
+*.state
+*.log
