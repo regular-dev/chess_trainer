@@ -20,13 +20,21 @@ pub fn play_chess(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let file_path = args.get_one::<String>("ModelState").unwrap();
     let is_ocl = args.contains_id("Ocl");
     let is_fen = args.contains_id("Fen");
-    let depth = args.get_one::<u16>("Depth").unwrap();
+    let mut depth = args.get_one::<u16>("Depth").unwrap().clone();
+
+    if depth == 0 {
+        depth = 2;
+    }
+
+    if depth % 2 == 1 {
+        depth += 1;
+    }
 
     if is_ocl {
         info!("Using ocl...");
-        play_chess_ocl(file_path.clone(), is_fen, *depth)?;
+        play_chess_ocl(file_path.clone(), is_fen, depth)?;
     } else {
-        play_chess_cpu(file_path.clone(), is_fen, *depth)?;
+        play_chess_cpu(file_path.clone(), is_fen, depth)?;
     }
 
     Ok(())
@@ -94,6 +102,8 @@ fn continue_play<T: Model + Serialize + Clone>(
     }
 
     let mut board = Board::start_pos();
+
+    println!("UCI Move examples : 'e2e4', 'e7e8q' - pawn to queen promotes");
 
     while !board.checkmate() {
         println!("==== Move {} ====", board.moves_played());
