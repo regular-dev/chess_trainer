@@ -60,7 +60,7 @@ pub fn continue_test<T: Model + Serialize + Clone>(
     drop(out_b);
 
     let inv_val = board.turn() == pleco::Player::Black;
-    let best_move = my_alpha_beta_search(&mut board, -12000, 12000, 2, &mut net, inv_val);
+    let best_move = my_alpha_beta_search(&mut board, -14000, 14000, 2, &mut net, inv_val);
     // let best_move = my_minimax(&mut board, 2, &mut net);
 
     info!("Best move : {} - {}", best_move.bit_move, best_move.score);

@@ -2,18 +2,15 @@
 use clap::ArgMatches;
 use nevermind_neu::dataloader::*;
 use nevermind_neu::util::*;
-use pleco::bots::minimax::minimax;
 use pleco::BitMove;
 use pleco::MoveList;
 use rand::seq::SliceRandom;
 
 use ndarray::array;
-use ndarray::{Array, Array2, ArrayView, ArrayViewMut, ArrayViewMut2, ShapeBuilder};
+use ndarray::{Array, Array2, ArrayView, ArrayViewMut, ArrayViewMut2};
 
 use std::fs::File;
-use std::io;
 use std::io::Write;
-use std::ops::DerefMut;
 
 use log::{debug, error, info, warn};
 
@@ -28,6 +25,8 @@ use pleco::core::Piece;
 use pleco::core::Player;
 use pleco::tools::eval::Eval;
 use pleco::SQ;
+
+use crate::sqlite_dataset::encode_board;
 
 const MAX_DESK_STEPS: i32 = 45;
 const MITTELSPIEL: u16 = 23;
@@ -422,89 +421,86 @@ pub fn create_dataset(filepath: &str, desk_num: usize) -> Result<(), Box<dyn std
 
             let eval_cur_board = Eval::eval_low(&b) as i16;
 
-            if b.turn() == Player::White {
-                let mut legal_moves = b.generate_moves();
-                legal_moves.shuffle(&mut rng);
+            let mut legal_moves = b.generate_moves();
+            legal_moves.shuffle(&mut rng);
 
-                if legal_moves.is_empty() {
-                    break;
-                }
+            if legal_moves.is_empty() {
+                break;
+            }
 
-                let score_lm = rate_move_list(b, &legal_moves, DEPTH_SEARCH as u16 - 1);
-                // let normalized_lm = minmax_normalize_vec(&score_lm);
-                let normalized_lm = score_lm;
+            let score_lm = rate_move_list(b, &legal_moves, DEPTH_SEARCH as u16 - 1);
+            // let normalized_lm = minmax_normalize_vec(&score_lm);
+            let normalized_lm = score_lm;
 
-                if !normalized_lm.is_empty() {
-                    let mut tuple_vec = generate_score_bitmove_vec(&legal_moves, &normalized_lm);
+            if !normalized_lm.is_empty() {
+                let mut tuple_vec = generate_score_bitmove_vec(&legal_moves, &normalized_lm);
 
-                    let rand_moves_num = std::cmp::min(RANDOM_MOVES, legal_moves.len());
+                let rand_moves_num = std::cmp::min(RANDOM_MOVES, legal_moves.len());
 
-                    tuple_vec.shuffle(&mut rng);
+                tuple_vec.shuffle(&mut rng);
 
-                    debug!("BEGIN {} DISPLAY --------", rand_moves_num);
+                debug!("BEGIN {} DISPLAY --------", rand_moves_num);
 
-                    for i in 0..rand_moves_num {
-                        if rand_moves_num == 1 {
-                            break;
+                for i in 0..rand_moves_num {
+                    if rand_moves_num == 1 {
+                        break;
+                    }
+
+                    if tuple_vec[i].0.is_castle() {
+                        info!("Castling move - continue");
+                        continue;
+                    }
+
+                    if (tuple_vec[i].1 as f32 - prev_score).abs()
+                        < prev_score.abs() * SCORE_DIFF_PERC
+                        || (tuple_vec[i].1 as f32 - prev_score).abs() < VAL_DIFF
+                    {
+                        let delta = (tuple_vec[i].1 as f32 - prev_score).abs();
+                        debug!("Ignoring move with delta : {}", delta);
+                        continue;
+                    }
+
+                    let db = encode_board_with_move(b, &tuple_vec[i].0, tuple_vec[i].1 as f32);
+
+                    debug!("MOVE : {} | SCORE : {}", tuple_vec[i].0, tuple_vec[i].1);
+
+                    if let Some(val_db) = db {
+                        loader.data.push(val_db);
+                        prev_score = tuple_vec[i].1 as f32;
+
+                        if counter % 100 == 0 {
+                            info!(
+                                "Successfully pushed {} databatches. Last score : {}",
+                                counter, tuple_vec[i].1
+                            );
                         }
-
-                        if tuple_vec[i].0.is_castle() {
-                            info!("Castling move - continue");
-                            continue;
-                        }
-
-                        if (tuple_vec[i].1 as f32 - prev_score).abs()
-                            < prev_score.abs() * SCORE_DIFF_PERC
-                            || (tuple_vec[i].1 as f32 - prev_score).abs() < VAL_DIFF
-                        {
-                            let delta = (tuple_vec[i].1 as f32 - prev_score).abs();
-                            debug!("Ignoring move with delta : {}", delta);
-                            continue;
-                        }
-
-                        let db = encode_board_with_move(b, &tuple_vec[i].0, tuple_vec[i].1 as f32);
-
-                        debug!("MOVE : {} | SCORE : {}", tuple_vec[i].0, tuple_vec[i].1);
-
-                        if let Some(val_db) = db {
-                            loader.data.push(val_db);
-                            prev_score = tuple_vec[i].1 as f32;
-
-                            if counter % 100 == 0 {
-                                info!(
-                                    "Successfully pushed {} databatches. Last score : {}",
-                                    counter, tuple_vec[i].1
-                                );
-                            }
-                            counter += 1;
-                        } else {
-                            error!("Something wrong with encoding databatch !!!");
-                        }
+                        counter += 1;
+                    } else {
+                        error!("Something wrong with encoding databatch !!!");
                     }
                 }
             }
 
-            let best_move = alphabeta::alpha_beta_search(b, -14000, 14000, DEPTH_SEARCH as u16);
+            let best_move = alphabeta::alpha_beta_search(b, -15000, 15000, DEPTH_SEARCH as u16);
             // let best_move = minimax(b, DEPTH_SEARCH as u16);
 
-            if b.turn() == Player::White {
-                // encoding best move also
-                let db = encode_board_with_move(
-                    &b,
-                    &best_move.bit_move,
-                    best_move.score as f32 - eval_cur_board as f32,
-                )
-                .unwrap();
-                loader.data.push(db);
+            // encoding best move also
+            let db = encode_board_with_move(
+                &b,
+                &best_move.bit_move,
+                best_move.score as f32 - eval_cur_board as f32,
+            )
+            .unwrap();
 
-                debug!(
-                    "BEST MOVE AND SCORE : {}-{} : {}",
-                    best_move.bit_move.get_src(),
-                    best_move.bit_move.get_dest(),
-                    best_move.score - eval_cur_board,
-                );
-                debug!("--- END MOVES ---");
-            }
+            loader.data.push(db);
+
+            debug!(
+                "BEST MOVE AND SCORE : {}-{} : {}",
+                best_move.bit_move.get_src(),
+                best_move.bit_move.get_dest(),
+                best_move.score - eval_cur_board,
+            );
+            debug!("--- END MOVES ---");
 
             if b.legal_move(best_move.bit_move) {
                 b.apply_move(best_move.bit_move);

@@ -20,20 +20,18 @@ pub fn dataset_from_db(args: &ArgMatches) -> Result<(), Box<dyn std::error::Erro
     let db_offset = args.get_one::<usize>("Offset").unwrap();
 
     let mut loader = ProtobufDataLoader::empty();
-    let connection = sqlite::open(db_path).unwrap();
+    let connection = rusqlite::Connection::open(db_path).unwrap();
 
     let query = format!("SELECT * from evaluations LIMIT {} OFFSET {}", limit, db_offset);
+    let mut stmt = connection.prepare(&query).unwrap();
+    let mut rows = stmt.query([]).unwrap();
 
     let mut cnt = 0;
 
-    for row in connection
-        .prepare(query)
-        .unwrap()
-        .into_iter()
-        .map(|row| row.unwrap())
+    while let Some(row) = rows.next().unwrap()
     {
-        let fen = row.read::<&str, _>("fen");
-        let mut eval = row.read::<f64, _>("eval");
+        let fen:String = row.get_unwrap(1);
+        let mut eval:f64 = row.get_unwrap(3);
 
         if eval > SCORE_LIMIT as f64 {
             eval = SCORE_LIMIT as f64;
@@ -45,7 +43,7 @@ pub fn dataset_from_db(args: &ArgMatches) -> Result<(), Box<dyn std::error::Erro
 
         eval = (eval + 15.0) / 30.0;
 
-        let board_opt = Board::from_fen(fen);
+        let board_opt = Board::from_fen(fen.as_str());
 
         if board_opt.is_err() {
             continue;
@@ -177,8 +175,10 @@ pub fn encode_board(b: &mut Board, eval: f32) -> Option<LabeledEntry> {
         util::score_material(&b, Player::White)
     );
 
-    //inp_vec.push(util::score_material(&b, Player::Black));
-    //inp_vec.push(util::score_material(&b, Player::White));
+    // TODO : remove score_material values,
+    // when dropout_ocl and sqlite_loader will be implemented
+    inp_vec.push(util::score_material(&b, Player::Black)); 
+    inp_vec.push(util::score_material(&b, Player::White));
 
     if flag_applied_null_move {
         unsafe {

@@ -6,6 +6,7 @@ use clap::{App, Arg, Command};
 use env_logger::Env;
 
 pub mod create_dataset;
+pub mod dataloader;
 pub mod play;
 pub mod sqlite_dataset;
 pub mod test;
@@ -21,32 +22,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .about("Train and play chess with nevermind-neu")
         .subcommand_required(true)
         .subcommand(
-            Command::new("gen_dataset [NOT IMPL]").arg(
-                Arg::new("DeskNum")
-                    .short('n')
-                    .long("desk_num")
-                    .help("Desk number in dataset")
-                    .default_value("64")
-                    .require_equals(true)
-                    .takes_value(true)
-                    .value_parser(clap::value_parser!(usize)),
-            ),
+            Command::new("gen_dataset")
+                .arg(
+                    Arg::new("DeskNum")
+                        .short('n')
+                        .long("desk_num")
+                        .help("Desk number in dataset")
+                        .default_value("64")
+                        .require_equals(true)
+                        .takes_value(true)
+                        .value_parser(clap::value_parser!(usize)),
+                )
+                .about("LEGACY"),
         )
         .subcommand(
-            Command::new("train").arg(
-                Arg::new("Ocl")
-                    .long("ocl")
-                    .help("Use OpenCL computations")
-                    .takes_value(false),
-            ),
+            Command::new("train")
+                .arg(
+                    Arg::new("Ocl")
+                        .long("ocl")
+                        .help("Use OpenCL computations")
+                        .takes_value(false),
+                )
+                .arg(
+                    Arg::new("Dataset")
+                        .long("dataset")
+                        .help("Path to sqlite3 database with evaluated positions")
+                        .takes_value(true)
+                        .required(true),
+                ),
         )
         .subcommand(
-            Command::new("dataset_info").arg(
-                Arg::new("Dataset")
-                    .required(true)
-                    .takes_value(true)
-                    .help("Dataset file"),
-            ),
+            Command::new("dataset_info")
+                .arg(
+                    Arg::new("Dataset")
+                        .required(true)
+                        .takes_value(true)
+                        .help("Dataset file"),
+                )
+                .about("LEGACY"),
         )
         .subcommand(
             Command::new("test")
@@ -141,16 +154,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .value_parser(clap::value_parser!(usize)),
                 ),
         )
+        .about("LEGACY")
         .get_matches();
 
     let (cmd, args) = matches.subcommand().unwrap();
 
-    if cmd == "dataset_info" {
-        create_dataset::dataset_info(args)?;
-    }
-
     if cmd == "train" {
-        train::train_new(args.contains_id("Ocl"))?;
+        train::train_new(args, args.contains_id("Ocl"))?;
     }
 
     if cmd == "test" {
@@ -161,23 +171,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    if cmd == "play" {
+        play::play_chess(&args)?;
+    }
+
     if cmd == "dataset_from_db" {
         sqlite_dataset::dataset_from_db(args)?;
     }
 
-    if cmd == "play" {
-        play::play_chess(&args)?;
+    if cmd == "dataset_info" {
+        create_dataset::dataset_info(args)?;
     }
 
     if cmd == "train_continue" {
         todo!("impl")
         // train::train_continue(args)?;
-    }
-
-    if cmd == "gen_dataset" {
-        todo!("impl")
-        // let desk_num = args.get_one::<usize>("DeskNum").unwrap().clone();
-        //create_dataset::create_dataset(fp, desk_num)?;
     }
 
     Ok(())

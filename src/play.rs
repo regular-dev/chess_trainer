@@ -1,18 +1,20 @@
+use pleco::Piece;
 use serde::Serialize;
 
+use log::info;
+
 use clap::ArgMatches;
-use nevermind_neu::{
-    models::*,
-    orchestra::Orchestra,
-};
+use nevermind_neu::{models::*, orchestra::Orchestra};
 use pleco::board::*;
 
 use rand::Rng;
 
-use std::{error::Error, io, process::Stdio};
+use pleco::{core::masks::SQ_DISPLAY_ORDER, SQ};
 
-use crate::train::*;
+use std::{error::Error, io};
+
 use crate::test::*;
+use crate::train::*;
 
 pub fn play_chess(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let file_path = args.get_one::<String>("ModelState").unwrap();
@@ -21,7 +23,7 @@ pub fn play_chess(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let depth = args.get_one::<u16>("Depth").unwrap();
 
     if is_ocl {
-        println!("Using ocl...");
+        info!("Using ocl...");
         play_chess_ocl(file_path.clone(), is_fen, *depth)?;
     } else {
         play_chess_cpu(file_path.clone(), is_fen, *depth)?;
@@ -69,7 +71,11 @@ impl Turn {
     }
 }
 
-fn continue_play<T: Model + Serialize + Clone>(mdl: T, display_fen: bool, d: u16) -> Result<(), Box<dyn Error>> {
+fn continue_play<T: Model + Serialize + Clone>(
+    mdl: T,
+    display_fen: bool,
+    d: u16,
+) -> Result<(), Box<dyn Error>> {
     // initialize orchestra
     let mut orc = Orchestra::new_for_eval(mdl).test_batch_size(1);
 
@@ -96,7 +102,7 @@ fn continue_play<T: Model + Serialize + Clone>(mdl: T, display_fen: bool, d: u16
             println!("Fen : {}", board.fen());
         }
 
-        board.pretty_print();
+        print_board(&mut board);
 
         if turn == Turn::Player {
             do_player_step(&stdin, &mut board)?;
@@ -111,8 +117,7 @@ fn continue_play<T: Model + Serialize + Clone>(mdl: T, display_fen: bool, d: u16
     Ok(())
 }
 
-fn do_player_step(io: &io::Stdin, b: &mut Board) -> Result<(), Box<dyn Error>> 
-{
+fn do_player_step(io: &io::Stdin, b: &mut Board) -> Result<(), Box<dyn Error>> {
     loop {
         let player_move = read_string_from_stdin(io)?;
         let result = b.apply_uci_move(&player_move);
@@ -120,26 +125,103 @@ fn do_player_step(io: &io::Stdin, b: &mut Board) -> Result<(), Box<dyn Error>>
         if result {
             break;
         }
-
         println!("Invalid UCI move notation, please try again");
     }
 
     Ok(())
 }
 
-fn do_bot_step<T: Model + Serialize + Clone>(b: &mut Board, orc: &mut Orchestra<T>, depth: u16) -> Result<(), Box<dyn Error>> {
-    if b.moves_played() < 5 { // first 2 moves are random
+fn do_bot_step<T: Model + Serialize + Clone>(
+    b: &mut Board,
+    orc: &mut Orchestra<T>,
+    depth: u16,
+) -> Result<(), Box<dyn Error>> {
+    if b.moves_played() < 5 {
+        // first 2 moves are random
         let rand_moves = b.generate_moves();
         let mut rng = rand::thread_rng();
         b.apply_move(rand_moves[rng.gen_range(0..rand_moves.len()) as usize]);
-        return Ok(());
     } else {
         // let best_move = my_minimax(b, depth, orc, b.turn() == pleco::Player::White);
-        let best_move = my_alpha_beta_search(b, -12000, 12000, depth, orc, b.turn() == pleco::Player::Black);
+        let best_move = my_alpha_beta_search(
+            b,
+            -14000,
+            14000,
+            depth,
+            orc,
+            b.turn() == pleco::Player::Black,
+        );
         b.apply_move(best_move.bit_move);
     }
 
     println!("Bot's move : {}", b.last_move().unwrap());
 
     Ok(())
+}
+
+fn print_board(b: &mut Board) {
+    let mut out_str = String::with_capacity(64 * 4);
+
+    let top_heading = vec!['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+    let left_heading = vec!['1', '2', '3', '4', '5', '6', '7', '8'];
+
+    out_str.push(' ');
+    out_str.push(' ');
+
+    for i in top_heading.iter() {
+        out_str.push(*i);
+        out_str.push(' ');
+    }
+
+    out_str.pop();
+    out_str.push('\n');
+
+    out_str.push(left_heading[7]);
+    out_str.push(' ');
+
+    let mut left_heading_idx = 1;
+
+    for sq in SQ_DISPLAY_ORDER.iter() {
+        let op = b.piece_at_sq(SQ(*sq));
+
+        let char = if op != Piece::None {
+            //op.character_lossy()
+            piece_to_pretty_char(&op)
+        } else {
+            '-'
+        };
+
+        out_str.push(char);
+        out_str.push(' ');
+
+        if sq % 8 == 7 {
+            out_str.push('\n');
+
+            if left_heading_idx < 8 {
+                out_str.push(left_heading[7 - left_heading_idx]);
+                out_str.push(' ');
+                left_heading_idx += 1;
+            }
+        }
+    }
+
+    println!("{}", out_str);
+}
+
+fn piece_to_pretty_char(p: &Piece) -> char {
+    match p {
+        Piece::None => panic!(),
+        Piece::WhitePawn => '♙',
+        Piece::WhiteKnight => '♘',
+        Piece::WhiteBishop => '♗',
+        Piece::WhiteRook => '♖',
+        Piece::WhiteQueen => '♕',
+        Piece::WhiteKing => '♔',
+        Piece::BlackPawn => '♟',
+        Piece::BlackKnight => '♞',
+        Piece::BlackBishop => '♝',
+        Piece::BlackRook => '♜',
+        Piece::BlackQueen => '♛',
+        Piece::BlackKing => '♚',
+    }
 }
