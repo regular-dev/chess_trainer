@@ -8,7 +8,7 @@ if len(sys.argv) != 3:
     print("Invalid number of arguments!")
     exit(0)
 
-__games_limit = 5 # you can change this number if you want to increase dataset
+__games_limit = 5000 # you can change this number if you want to increase dataset
 _pgn_file = sys.argv[1].strip()
 _out_db_file = sys.argv[2].strip()
 _engine_path = 'stockfish'
