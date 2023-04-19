@@ -4,18 +4,19 @@ use log::info;
 use std::time::Instant;
 
 // nevermind_neu
-use nevermind_neu::dataloader::*;
 use nevermind_neu::layers::*;
 use nevermind_neu::orchestra::*;
 use nevermind_neu::models::*;
 use nevermind_neu::optimizers::*;
 use nevermind_neu::util::*;
 
-pub fn train_new(is_ocl: bool) -> Result<(), Box<dyn std::error::Error>> {
+use crate::dataloader::SqliteChessDataloader;
+
+pub fn train_new(args: &ArgMatches, is_ocl: bool) -> Result<(), Box<dyn std::error::Error>> {
     if is_ocl {
-        train_chess_ocl()?;
+        train_chess_ocl(args)?;
     } else {
-        train_chess()?;
+        train_chess(args)?;
     }
 
     Ok(())
@@ -29,7 +30,7 @@ pub fn train_continue(
 
 pub fn fill_model_with_layers(mdl: &mut Sequential) 
 {
-    let input_layer = InputLayer::new_box(898); // 8 * 8 * 14 + 2
+    let input_layer = InputLayer::new_box(900); // 8 * 8 * 14 + 4
     mdl.add_layer(input_layer);
 
     for i in 0..5 {
@@ -45,7 +46,7 @@ pub fn fill_model_with_layers(mdl: &mut Sequential)
 
 pub fn fill_ocl_model_with_layers(mdl: &mut SequentialOcl) 
 {
-    let input_layer = Box::new(InputLayerOcl::new(898)); // 8 * 8 * 14 + 2
+    let input_layer = Box::new(InputLayerOcl::new(900)); // 8 * 8 * 14 + 4
     // TODO : maybe add constructor like InputDataLayer::new_box
     mdl.add_layer(input_layer);
 
@@ -62,8 +63,11 @@ pub fn fill_ocl_model_with_layers(mdl: &mut SequentialOcl)
     mdl.init_layers(); // TODO : maybe rename  same as Sequential like compile_shapes(...)
 }
 
-pub fn train_chess( ) -> Result<(), Box<dyn std::error::Error>> {
-    let dataset_train = Box::new(ProtobufDataLoader::from_file("chess_train.pb")?);
+pub fn train_chess(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
+    let ds_path = args.get_one::<String>("Dataset").unwrap();
+    // let dataset_train = Box::new(ProtobufDataLoader::from_file(ds_path.as_ref())?);
+    let mut dataset = Box::new(SqliteChessDataloader::new(ds_path.as_str()));
+    dataset.do_shuffle = true;
 
     let mut mdl = Sequential::new();
 
@@ -78,7 +82,7 @@ pub fn train_chess( ) -> Result<(), Box<dyn std::error::Error>> {
 
     let mut net = Orchestra::new(mdl);
 
-    net.set_train_dataset(dataset_train);
+    net.set_train_dataset(dataset);
     net.set_snap_iter(100_000);
     net.set_learn_rate_decay(0.8);
     net.set_learn_rate_decay_step(100_000);
@@ -86,14 +90,17 @@ pub fn train_chess( ) -> Result<(), Box<dyn std::error::Error>> {
     net.set_save_on_finish_flag(true);
 
     let now = Instant::now();
-    net.train_for_error_or_iter(1e-4, 500_000)?;
+    net.train_epochs_or_error(20, 1e-3)?;
     info!("Training finished, elapsed : {} seconds", now.elapsed().as_secs());
 
     Ok(())
 }
 
-pub fn train_chess_ocl( ) -> Result<(), Box<dyn std::error::Error>> {
-    let dataset_train = Box::new(ProtobufDataLoader::from_file("chess_train.pb")?);
+pub fn train_chess_ocl(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
+    let ds_path = args.get_one::<String>("Dataset").unwrap();
+    // let dataset_train = Box::new(ProtobufDataLoader::from_file(ds_path.as_ref())?);
+    let mut dataset = Box::new(SqliteChessDataloader::new(ds_path.as_str()));
+    dataset.do_shuffle = true;
 
     let mut mdl = SequentialOcl::new()?;
 
@@ -109,7 +116,7 @@ pub fn train_chess_ocl( ) -> Result<(), Box<dyn std::error::Error>> {
 
     let mut net = Orchestra::new(mdl);
 
-    net.set_train_dataset(dataset_train);
+    net.set_train_dataset(dataset);
     net.set_snap_iter(30_000);
     net.set_learn_rate_decay(0.8);
     net.set_learn_rate_decay_step(100_000);
@@ -117,7 +124,7 @@ pub fn train_chess_ocl( ) -> Result<(), Box<dyn std::error::Error>> {
     net.set_save_on_finish_flag(true);
 
     let now = Instant::now();
-    net.train_epochs_or_error(25, 1e-3)?;
+    net.train_epochs_or_error(20, 1e-3)?;
     info!("Training finished, elapsed : {} seconds", now.elapsed().as_secs());
 
     Ok(())
