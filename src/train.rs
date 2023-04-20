@@ -28,13 +28,18 @@ pub fn train_continue(
     todo!()
 }
 
-pub fn fill_model_with_layers(mdl: &mut Sequential) 
+pub fn fill_model_with_layers(mdl: &mut Sequential, add_dropout: bool)
 {
     let input_layer = InputLayer::new_box(900); // 8 * 8 * 14 + 4
     mdl.add_layer(input_layer);
 
     for i in 0..5 {
-        let fc_layer = FcLayer::new_box(900 - i * 100, tanh_activation!());
+        let mut fc_layer = FcLayer::new_box(900 - i * 100, tanh_activation!());
+
+        if add_dropout {
+            fc_layer.set_dropout(0.15);
+        }
+
         mdl.add_layer(fc_layer);
     }
 
@@ -44,14 +49,19 @@ pub fn fill_model_with_layers(mdl: &mut Sequential)
     mdl.compile_shapes(); // do not forget to call after layers were added
 }
 
-pub fn fill_ocl_model_with_layers(mdl: &mut SequentialOcl) 
+pub fn fill_ocl_model_with_layers(mdl: &mut SequentialOcl, add_dropout: bool) 
 {
     let input_layer = Box::new(InputLayerOcl::new(900)); // 8 * 8 * 14 + 4
     // TODO : maybe add constructor like InputDataLayer::new_box
     mdl.add_layer(input_layer);
 
     for i in 0..5 {
-        let fc_layer = Box::new(FcLayerOcl::new(900 - i * 100, OclActivationFunc::Tanh));
+        let mut fc_layer = Box::new(FcLayerOcl::new(900 - i * 100, OclActivationFunc::Tanh));
+
+        if add_dropout {
+            fc_layer.set_dropout(0.15);
+        }
+
         mdl.add_layer(fc_layer);
     }
 
@@ -71,7 +81,7 @@ pub fn train_chess(args: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> 
 
     let mut mdl = Sequential::new();
 
-    fill_model_with_layers(&mut mdl);
+    fill_model_with_layers(&mut mdl, true);
     mdl.set_batch_size(16);
 
     // Optimizer
@@ -104,7 +114,7 @@ pub fn train_chess_ocl(args: &ArgMatches) -> Result<(), Box<dyn std::error::Erro
 
     let mut mdl = SequentialOcl::new()?;
 
-    fill_ocl_model_with_layers(&mut mdl);
+    fill_ocl_model_with_layers(&mut mdl, true);
     mdl.set_batch_size(32);
 
     // Optimizer

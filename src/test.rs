@@ -20,7 +20,7 @@ const DRAW_V: i16 = 0 as i16;
 pub fn test(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let solver_state_str = args.get_one::<String>("ModelState").unwrap();
     let mut mdl = Sequential::new();
-    fill_model_with_layers(&mut mdl);
+    fill_model_with_layers(&mut mdl, false);
 
     mdl.load_state(solver_state_str)?;
 
@@ -30,7 +30,7 @@ pub fn test(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 pub fn test_ocl(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let solver_state_str = args.get_one::<String>("ModelState").unwrap();
     let mut mdl = SequentialOcl::new().expect("Failed to create SequentialOCL model");
-    fill_ocl_model_with_layers(&mut mdl);
+    fill_ocl_model_with_layers(&mut mdl, false);
 
     mdl.load_state(solver_state_str)?;
 

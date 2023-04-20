@@ -42,7 +42,7 @@ pub fn play_chess(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
 
 fn play_chess_ocl(model_state: String, display_fen: bool, d: u16) -> Result<(), Box<dyn Error>> {
     let mut mdl = SequentialOcl::new().expect("Failed to create SequentialOCL model");
-    fill_ocl_model_with_layers(&mut mdl);
+    fill_ocl_model_with_layers(&mut mdl, false);
     mdl.load_state(&model_state)?;
 
     continue_play(mdl, display_fen, d)
@@ -50,7 +50,7 @@ fn play_chess_ocl(model_state: String, display_fen: bool, d: u16) -> Result<(), 
 
 fn play_chess_cpu(model_state: String, display_fen: bool, d: u16) -> Result<(), Box<dyn Error>> {
     let mut mdl = Sequential::new();
-    fill_model_with_layers(&mut mdl);
+    fill_model_with_layers(&mut mdl, false);
     mdl.load_state(&model_state)?;
 
     continue_play(mdl, display_fen, d)
@@ -146,11 +146,21 @@ fn do_bot_step<T: Model + Serialize + Clone>(
     orc: &mut Orchestra<T>,
     depth: u16,
 ) -> Result<(), Box<dyn Error>> {
-    if b.moves_played() < 5 {
+    if b.moves_played() < 3 {
         // first 2 moves are random
         let rand_moves = b.generate_moves();
         let mut rng = rand::thread_rng();
         b.apply_move(rand_moves[rng.gen_range(0..rand_moves.len()) as usize]);
+    } else if b.moves_played() < 5 {
+        let best_move = my_alpha_beta_search(
+            b,
+            -14000,
+            14000,
+            2,
+            orc,
+            b.turn() == pleco::Player::Black,
+        );
+        b.apply_move(best_move.bit_move);
     } else {
         // let best_move = my_minimax(b, depth, orc, b.turn() == pleco::Player::White);
         let best_move = my_alpha_beta_search(
