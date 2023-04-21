@@ -1,6 +1,6 @@
 use nevermind_neu::dataloader::*;
 use pleco::*;
-use rand::{seq::SliceRandom, rngs::ThreadRng};
+use rand::{seq::SliceRandom, rngs::ThreadRng, Rng};
 use std::cell::RefCell;
 
 use log::info;
@@ -53,7 +53,13 @@ impl DataLoader for SqliteChessDataloader {
     fn next_batch(&self, size: usize) -> MiniBatch {
         if *self.idx.borrow() + size >= self.len().unwrap() {
             info!("[SqliteChessDataloader] Going to the start...");
-            *self.idx.borrow_mut() = 0;
+            let mut rng = thread_rng();
+
+            if self.do_shuffle {
+                *self.idx.borrow_mut() = rng.gen_range(0..size); // random offset
+            } else {
+                *self.idx.borrow_mut() = 0;
+            }
         }
 
         let mut v = Vec::with_capacity(size);
@@ -80,9 +86,6 @@ impl DataLoader for SqliteChessDataloader {
 
             v.push(encode_board(&mut board, eval).unwrap());
         }
-
-        let mut rng = thread_rng();
-        v.shuffle(&mut rng);
 
         *self.idx.borrow_mut() += size;
 
