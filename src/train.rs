@@ -33,8 +33,8 @@ pub fn fill_model_with_layers(mdl: &mut Sequential, add_dropout: bool)
     let input_layer = InputLayer::new_box(900); // 8 * 8 * 14 + 4
     mdl.add_layer(input_layer);
 
-    for i in 0..5 {
-        let mut fc_layer = FcLayer::new_box(900 - i * 100, tanh_activation!());
+    for i in 0..4 {
+        let mut fc_layer = FcLayer::new_box(900 - i * 100, leaky_relu_activation!());
 
         if add_dropout {
             fc_layer.set_dropout(0.15);
@@ -55,11 +55,11 @@ pub fn fill_ocl_model_with_layers(mdl: &mut SequentialOcl, add_dropout: bool)
     // TODO : maybe add constructor like InputDataLayer::new_box
     mdl.add_layer(input_layer);
 
-    for i in 0..5 {
-        let mut fc_layer = Box::new(FcLayerOcl::new(900 - i * 100, OclActivationFunc::Tanh));
+    for i in 0..4 {
+        let mut fc_layer = Box::new(FcLayerOcl::new(900 - i * 100, OclActivationFunc::LeakyReLU));
 
         if add_dropout {
-            fc_layer.set_dropout(0.15);
+           fc_layer.set_dropout(0.12);
         }
 
         mdl.add_layer(fc_layer);
@@ -117,9 +117,14 @@ pub fn train_chess_ocl(args: &ArgMatches) -> Result<(), Box<dyn std::error::Erro
     fill_ocl_model_with_layers(&mut mdl, true);
     mdl.set_batch_size(32);
 
+    if let Some(state) = args.get_one::<String>("State") {
+        info!("Loading model state from {}", state);
+        mdl.load_state(state)?;
+    }
+
     // Optimizer
     {
-        let mut opt = Box::new(OptimizerOclRms::new(2e-3, mdl.queue()));
+        let mut opt = Box::new(OptimizerOclRms::new(3e-4, mdl.queue()));
         opt.set_alpha(0.87);
         mdl.set_optim(opt);
     }

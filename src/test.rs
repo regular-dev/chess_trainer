@@ -11,6 +11,7 @@ use pleco::*;
 
 use nevermind_neu::orchestra::*;
 
+use crate::play::generate_top_n_moves;
 use crate::sqlite_dataset::*;
 use crate::train::*;
 
@@ -157,3 +158,60 @@ pub fn my_alpha_beta_search<T: Model + Serialize + Clone>(
 
     best_move
 }
+
+pub fn shorten_alpha_beta<T: Model + Serialize + Clone>(
+    board: &mut Board,
+    mut alpha: f32,
+    beta: f32,
+    depth: u16,
+    net: &mut Orchestra<T>,
+    inverse_value: bool, // false - for white, true for black
+    n_top: usize, // each call we analyze only N best moves
+) -> (BitMove, f32) {
+    if depth == 0 {
+        let enc_b = encode_board(board, 0.0).unwrap();
+        let out_net = net.eval_one(enc_b.input).unwrap();
+        let out_net_b = out_net.borrow();
+        let mut score = out_net_b.first().unwrap() * 15000.0;
+
+        if inverse_value {
+            score = score * -1.0;
+        }
+
+        let score_move = ScoringMove::new_score(BitMove::new(0), score as i16);
+
+        return (score_move.bit_move, score as f32);
+    }
+
+    let moves = board.generate_scoring_moves();
+
+    if moves.is_empty() {
+        if board.in_check() {
+            return (BitMove::new(0), MATE_V as f32);
+        } else {
+            return (BitMove::new(0), DRAW_V as f32);
+        }
+    }
+
+    let mut best_move = (BitMove::new(0), alpha as f32);
+
+    let mut best_n_moves = generate_top_n_moves(board, net, n_top);
+
+    for mov in best_n_moves.iter_mut() {
+        board.apply_move(mov.0);
+        mov.1 =
+            -shorten_alpha_beta(board, -beta, -alpha, depth - 1, net, inverse_value, n_top).1;
+        board.undo_move();
+
+        if mov.1 > alpha as f32 {
+            alpha = mov.1 as f32;
+            if alpha >= beta {
+                return *mov;
+            }
+            best_move = (mov.0, mov.1);
+        }
+    }
+
+    best_move
+}
+

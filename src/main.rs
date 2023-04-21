@@ -49,7 +49,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .help("Path to sqlite3 database with evaluated positions")
                         .takes_value(true)
                         .required(true),
-                ),
+                )
+                .arg(
+                    Arg::new("State")
+                        .long("state")
+                        .help("Continue train model from some state")
+                        .takes_value(true)
+                        .required(false)
+                )
         )
         .subcommand(
             Command::new("dataset_info")

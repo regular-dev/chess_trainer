@@ -1,4 +1,5 @@
 use pleco::Piece;
+use pleco::ScoringMove;
 use serde::Serialize;
 
 use log::info;
@@ -13,6 +14,7 @@ use pleco::{core::masks::SQ_DISPLAY_ORDER, SQ};
 
 use std::{error::Error, io};
 
+use crate::sqlite_dataset::encode_board;
 use crate::test::*;
 use crate::train::*;
 
@@ -152,25 +154,21 @@ fn do_bot_step<T: Model + Serialize + Clone>(
         let mut rng = rand::thread_rng();
         b.apply_move(rand_moves[rng.gen_range(0..rand_moves.len()) as usize]);
     } else if b.moves_played() < 5 {
-        let best_move = my_alpha_beta_search(
-            b,
-            -14000,
-            14000,
-            2,
-            orc,
-            b.turn() == pleco::Player::Black,
-        );
+        let best_move =
+            my_alpha_beta_search(b, -14000, 14000, 2, orc, b.turn() == pleco::Player::Black);
         b.apply_move(best_move.bit_move);
     } else {
         // let best_move = my_minimax(b, depth, orc, b.turn() == pleco::Player::White);
-        let best_move = my_alpha_beta_search(
-            b,
-            -14000,
-            14000,
-            depth,
-            orc,
-            b.turn() == pleco::Player::Black,
-        );
+        let best_move = my_alpha_beta_search(b, -15000, 15000, depth, orc, b.turn() == pleco::Player::Black);
+        // let best_move = shorten_alpha_beta( TODO : impl
+        //     b,a
+        //     -14000 as f32,
+        //     14000 as f32,
+        //     depth,
+        //     orc,
+        //     b.turn() == pleco::Player::Black,
+        //     6
+        // );
         b.apply_move(best_move.bit_move);
     }
 
@@ -244,4 +242,37 @@ fn piece_to_pretty_char(p: &Piece) -> char {
         Piece::BlackQueen => '♛',
         Piece::BlackKing => '♚',
     }
+}
+
+pub fn generate_top_n_moves<T: Model + Serialize + Clone>(
+    b: &mut Board,
+    orc: &mut Orchestra<T>,
+    n: usize,
+) -> Vec<(pleco::BitMove, f32)> {
+    let legal_moves = b.generate_moves();    
+
+    let mut scored_moves:Vec<(pleco::BitMove, f32)> = legal_moves.iter().map(|m|
+    {
+        b.apply_move(m.clone());
+
+        let enc_b = encode_board(b, 0.0).unwrap();
+        let out_net = orc.eval_one(enc_b.input).unwrap();
+        let out_net_b = out_net.borrow();
+        let mut eval = *out_net_b.first().unwrap();
+
+        b.undo_move();
+
+        (m.clone(), *out_net_b.first().unwrap())
+
+    }).collect();
+
+    scored_moves.sort_by(|a, b|
+    {
+        // a.1.total_cmp(&b.1)
+        a.1.partial_cmp(&b.1).unwrap()
+    });
+
+    scored_moves.truncate(n);
+
+    scored_moves
 }
