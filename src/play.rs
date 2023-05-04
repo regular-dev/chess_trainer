@@ -19,7 +19,8 @@ use crate::test::*;
 use crate::train::*;
 
 pub fn play_chess(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
-    let file_path = args.get_one::<String>("ModelState").unwrap();
+    let file_path_white = args.get_one::<String>("ModelStateWhite").unwrap();
+    let file_path_black = args.get_one::<String>("ModelStateBlack").unwrap();
     let is_ocl = args.contains_id("Ocl");
     let is_fen = args.contains_id("Fen");
     let mut depth = args.get_one::<u16>("Depth").unwrap().clone();
@@ -28,26 +29,37 @@ pub fn play_chess(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
         depth = 2;
     }
 
-    if depth % 2 == 1 {
-        depth += 1;
-    }
-
     if is_ocl {
         info!("Using ocl...");
-        play_chess_ocl(file_path.clone(), is_fen, depth)?;
+        play_chess_ocl(
+            file_path_white.clone(),
+            file_path_black.clone(),
+            is_fen,
+            depth,
+        )?;
     } else {
-        play_chess_cpu(file_path.clone(), is_fen, depth)?;
+        //play_chess_cpu(file_path.clone(), is_fen, depth)?;
+        todo!("CPU")
     }
 
     Ok(())
 }
 
-fn play_chess_ocl(model_state: String, display_fen: bool, d: u16) -> Result<(), Box<dyn Error>> {
-    let mut mdl = SequentialOcl::new().expect("Failed to create SequentialOCL model");
-    fill_ocl_model_with_layers(&mut mdl, false);
-    mdl.load_state(&model_state)?;
+fn play_chess_ocl(
+    model_state_white: String,
+    model_state_black: String,
+    display_fen: bool,
+    d: u16,
+) -> Result<(), Box<dyn Error>> {
+    let mut mdl_white = SequentialOcl::new()?;
+    fill_ocl_model_with_layers(&mut mdl_white, false);
+    mdl_white.load_state(&model_state_white)?;
 
-    continue_play(mdl, display_fen, d)
+    let mut mdl_black = SequentialOcl::new()?;
+    fill_ocl_model_with_layers(&mut mdl_black, false);
+    mdl_black.load_state(&model_state_black)?;
+
+    continue_play(mdl_white, mdl_black, display_fen, d)
 }
 
 fn play_chess_cpu(model_state: String, display_fen: bool, d: u16) -> Result<(), Box<dyn Error>> {
@@ -55,7 +67,9 @@ fn play_chess_cpu(model_state: String, display_fen: bool, d: u16) -> Result<(), 
     fill_model_with_layers(&mut mdl, false);
     mdl.load_state(&model_state)?;
 
-    continue_play(mdl, display_fen, d)
+    todo!("CPU")
+
+    // continue_play(mdl, display_fen, d)
 }
 
 fn read_string_from_stdin(stdin: &io::Stdin) -> Result<String, Box<dyn Error>> {
@@ -82,12 +96,14 @@ impl Turn {
 }
 
 fn continue_play<T: Model + Serialize + Clone>(
-    mdl: T,
+    mdl_white: T,
+    mdl_black: T,
     display_fen: bool,
     d: u16,
 ) -> Result<(), Box<dyn Error>> {
     // initialize orchestra
-    let mut orc = Orchestra::new_for_eval(mdl).test_batch_size(1);
+    let mut orc_white = Orchestra::new_for_eval(mdl_white).test_batch_size(1);
+    let mut orc_black = Orchestra::new_for_eval(mdl_black).test_batch_size(1);
 
     let stdin = io::stdin();
 
@@ -120,7 +136,7 @@ fn continue_play<T: Model + Serialize + Clone>(
             do_player_step(&stdin, &mut board)?;
         } else {
             println!("Bot is thinking...");
-            do_bot_step(&mut board, &mut orc, d)?;
+            do_bot_step(&mut board, &mut orc_white, &mut orc_black, d)?;
         }
 
         turn.switch();
@@ -146,29 +162,24 @@ fn do_player_step(io: &io::Stdin, b: &mut Board) -> Result<(), Box<dyn Error>> {
 fn do_bot_step<T: Model + Serialize + Clone>(
     b: &mut Board,
     orc: &mut Orchestra<T>,
+    orc_black: &mut Orchestra<T>,
     depth: u16,
 ) -> Result<(), Box<dyn Error>> {
-    if b.moves_played() < 3 {
+    if b.moves_played() < 2 {
         // first 2 moves are random
         let rand_moves = b.generate_moves();
         let mut rng = rand::thread_rng();
         b.apply_move(rand_moves[rng.gen_range(0..rand_moves.len()) as usize]);
-    } else if b.moves_played() < 5 {
-        let best_move =
-            my_alpha_beta_search(b, -14000, 14000, 2, orc, b.turn() == pleco::Player::Black);
+    } else if b.moves_played() < 4 {
+        let is_inv = if b.turn() == pleco::Player::White { depth % 2 == 1 } else { depth % 2 == 0 };
+        let best_move = my_alpha_beta_search(b, -15000, 15000, 2, orc, orc_black, false);
         b.apply_move(best_move.bit_move);
     } else {
-        // let best_move = my_minimax(b, depth, orc, b.turn() == pleco::Player::White);
-        let best_move = my_alpha_beta_search(b, -15000, 15000, depth, orc, b.turn() == pleco::Player::Black);
-        // let best_move = shorten_alpha_beta( TODO : impl
-        //     b,a
-        //     -14000 as f32,
-        //     14000 as f32,
-        //     depth,
-        //     orc,
-        //     b.turn() == pleco::Player::Black,
-        //     6
-        // );
+        let is_inv = if b.turn() == pleco::Player::White { depth % 2 == 1 } else { depth % 2 == 0 };
+
+        // let best_move = my_minimax(b, depth, orc, orc_black, is_inv);
+
+        let best_move = my_alpha_beta_search(b, -16000, 16000, depth, orc, orc_black, is_inv);
         b.apply_move(best_move.bit_move);
     }
 
@@ -242,37 +253,4 @@ fn piece_to_pretty_char(p: &Piece) -> char {
         Piece::BlackQueen => '♛',
         Piece::BlackKing => '♚',
     }
-}
-
-pub fn generate_top_n_moves<T: Model + Serialize + Clone>(
-    b: &mut Board,
-    orc: &mut Orchestra<T>,
-    n: usize,
-) -> Vec<(pleco::BitMove, f32)> {
-    let legal_moves = b.generate_moves();    
-
-    let mut scored_moves:Vec<(pleco::BitMove, f32)> = legal_moves.iter().map(|m|
-    {
-        b.apply_move(m.clone());
-
-        let enc_b = encode_board(b, 0.0).unwrap();
-        let out_net = orc.eval_one(enc_b.input).unwrap();
-        let out_net_b = out_net.borrow();
-        let mut eval = *out_net_b.first().unwrap();
-
-        b.undo_move();
-
-        (m.clone(), *out_net_b.first().unwrap())
-
-    }).collect();
-
-    scored_moves.sort_by(|a, b|
-    {
-        // a.1.total_cmp(&b.1)
-        a.1.partial_cmp(&b.1).unwrap()
-    });
-
-    scored_moves.truncate(n);
-
-    scored_moves
 }

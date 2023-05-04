@@ -11,7 +11,6 @@ use pleco::*;
 
 use nevermind_neu::orchestra::*;
 
-use crate::play::generate_top_n_moves;
 use crate::sqlite_dataset::*;
 use crate::train::*;
 
@@ -19,28 +18,41 @@ const MATE_V: i16 = 31000 as i16;
 const DRAW_V: i16 = 0 as i16;
 
 pub fn test(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
-    let solver_state_str = args.get_one::<String>("ModelState").unwrap();
-    let mut mdl = Sequential::new();
-    fill_model_with_layers(&mut mdl, false);
+    let state_white = args.get_one::<String>("ModelStateWhite").unwrap();
+    let state_black = args.get_one::<String>("ModelStateBlack").unwrap();
 
-    mdl.load_state(solver_state_str)?;
+    let mut mdl_white = Sequential::new();
+    let mut mdl_black = Sequential::new();
 
-    continue_test(args, mdl)
+    fill_model_with_layers(&mut mdl_white, false);
+    fill_model_with_layers(&mut mdl_black, false);
+
+    mdl_white.load_state(state_white)?;
+    mdl_black.load_state(state_black)?;
+
+    continue_test(args, mdl_white, mdl_black)
 }
 
 pub fn test_ocl(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
-    let solver_state_str = args.get_one::<String>("ModelState").unwrap();
-    let mut mdl = SequentialOcl::new().expect("Failed to create SequentialOCL model");
-    fill_ocl_model_with_layers(&mut mdl, false);
+    let state_white = args.get_one::<String>("ModelStateWhite").unwrap();
+    let state_black = args.get_one::<String>("ModelStateBlack").unwrap();
 
-    mdl.load_state(solver_state_str)?;
+    let mut mdl_white = SequentialOcl::new()?;
+    let mut mdl_black = SequentialOcl::new()?;
 
-    continue_test(args, mdl)
+    fill_ocl_model_with_layers(&mut mdl_white, false);
+    fill_ocl_model_with_layers(&mut mdl_black, false);
+
+    mdl_white.load_state(state_white)?;
+    mdl_black.load_state(state_black)?;
+
+    continue_test(args, mdl_white, mdl_black)
 }
 
 pub fn continue_test<T: Model + Serialize + Clone>(
     args: &ArgMatches,
-    mdl: T,
+    mdl_white: T,
+    mdl_black: T,
 ) -> Result<(), Box<dyn Error>> {
     let fen_str = args.get_one::<String>("Fen").unwrap();
 
@@ -49,19 +61,41 @@ pub fn continue_test<T: Model + Serialize + Clone>(
 
     vec_possible.push(encode_board(&mut board, 0.0).unwrap());
 
-    let mut net = Orchestra::new_for_eval(mdl).test_batch_size(1);
+    let mut net = Orchestra::new_for_eval(mdl_white).test_batch_size(1);
+    let mut net_black = Orchestra::new_for_eval(mdl_black).test_batch_size(1);
 
-    let out = net
-        .eval_one(encode_board(&mut board, 0.0).unwrap().input)
-        .unwrap();
-    let out_b = out.borrow();
+    if board.turn() == pleco::Player::White {
+        let out = net
+            .eval_one(encode_board(&mut board, 0.0).unwrap().input)
+            .unwrap();
+        let out_b = out.borrow();
 
-    info!("Current board eval : {}", out_b.first().unwrap());
+        info!("Current board eval : {}", out_b.first().unwrap());
+    } else {
+        let out = net_black
+            .eval_one(encode_board(&mut board, 0.0).unwrap().input)
+            .unwrap();
+        let out_b = out.borrow();
 
-    drop(out_b);
+        info!("Current board eval : {}", out_b.first().unwrap());
+    }
 
-    let inv_val = board.turn() == pleco::Player::Black;
-    let best_move = my_alpha_beta_search(&mut board, -14000, 14000, 2, &mut net, inv_val);
+    let depth = 4;
+    let is_inv = if board.turn() == pleco::Player::White {
+        depth % 2 == 1
+    } else {
+        depth % 2 == 0
+    };
+
+    let best_move = my_alpha_beta_search(
+        &mut board,
+        -15000,
+        15000,
+        depth,
+        &mut net,
+        &mut net_black,
+        is_inv,
+    );
     // let best_move = my_minimax(&mut board, 2, &mut net);
 
     info!("Best move : {} - {}", best_move.bit_move, best_move.score);
@@ -73,14 +107,29 @@ pub fn my_minimax<T: Model + Serialize + Clone>(
     board: &mut Board,
     depth: u16,
     net: &mut Orchestra<T>,
-    black_or_white: bool, // black - false, white - true
+    net_black: &mut Orchestra<T>,
+    inv_val: bool,
 ) -> ScoringMove {
     if depth == 0 {
         let enc_b = encode_board(board, 0.0).unwrap();
-        let out_net = net.eval_one(enc_b.input).unwrap();
-        let out_net_b = out_net.borrow();
-        let score = out_net_b.first().unwrap() * 15000.0;
-        let score_move = ScoringMove::new_score(BitMove::new(0), score as i16);
+        let mut score_move;
+
+        if board.turn() == pleco::Player::White {
+            let out_net = net.eval_one(enc_b.input).unwrap();
+            let out_net_b = out_net.borrow();
+            let score = (out_net_b.first().unwrap() - 0.5) * 15000.0;
+            score_move = ScoringMove::new_score(BitMove::new(0), score as i16);
+        } else {
+            let out_net = net_black.eval_one(enc_b.input).unwrap();
+            let out_net_b = out_net.borrow();
+            let score = (out_net_b.first().unwrap() - 0.5) * 15000.0;
+            score_move = ScoringMove::new_score(BitMove::new(0), score as i16);
+        }
+
+        if inv_val {
+            score_move.score = -1 * score_move.score;
+        }
+
         return score_move;
     }
 
@@ -89,22 +138,15 @@ pub fn my_minimax<T: Model + Serialize + Clone>(
         .into_iter()
         .map(|mut m: ScoringMove| {
             board.apply_move(m.bit_move);
-            m.score = -my_minimax(board, depth - 1, net, black_or_white).score;
+            m.score = -my_minimax(board, depth - 1, net, net_black, inv_val).score;
             board.undo_move();
             m
         });
 
-    if black_or_white {
-        return mapped_vals.min().unwrap_or_else(|| match board.in_check() {
-            true => ScoringMove::blank(-MATE_V),
-            false => ScoringMove::blank(DRAW_V),
-        });
-    } else {
-        return mapped_vals.max().unwrap_or_else(|| match board.in_check() {
-            true => ScoringMove::blank(-MATE_V),
-            false => ScoringMove::blank(DRAW_V),
-        });
-    }
+    return mapped_vals.max().unwrap_or_else(|| match board.in_check() {
+        true => ScoringMove::blank(-MATE_V),
+        false => ScoringMove::blank(DRAW_V),
+    });
 }
 
 pub fn my_alpha_beta_search<T: Model + Serialize + Clone>(
@@ -113,19 +155,28 @@ pub fn my_alpha_beta_search<T: Model + Serialize + Clone>(
     beta: i16,
     depth: u16,
     net: &mut Orchestra<T>,
-    inverse_value: bool, // false - for white, true for black
+    net_black: &mut Orchestra<T>,
+    inv_val: bool,
 ) -> ScoringMove {
     if depth == 0 {
         let enc_b = encode_board(board, 0.0).unwrap();
-        let out_net = net.eval_one(enc_b.input).unwrap();
-        let out_net_b = out_net.borrow();
-        let mut score = out_net_b.first().unwrap() * 15000.0;
+        let mut score_move;
 
-        if inverse_value {
-            score = score * -1.0;
+        if board.turn() == pleco::Player::White {
+            let out_net = net.eval_one(enc_b.input).unwrap();
+            let out_net_b = out_net.borrow();
+            let score = (out_net_b.first().unwrap() - 0.5) * 15000.0;
+            score_move = ScoringMove::new_score(BitMove::new(0), score as i16);
+        } else {
+            let out_net = net_black.eval_one(enc_b.input).unwrap();
+            let out_net_b = out_net.borrow();
+            let score = (out_net_b.first().unwrap() - 0.5) * 15000.0;
+            score_move = ScoringMove::new_score(BitMove::new(0), score as i16);
         }
 
-        let score_move = ScoringMove::new_score(BitMove::new(0), score as i16);
+        if inv_val {
+            score_move.score = -1 * score_move.score;
+        }
 
         return score_move;
     }
@@ -144,7 +195,7 @@ pub fn my_alpha_beta_search<T: Model + Serialize + Clone>(
     for mov in moves.iter_mut() {
         board.apply_move(mov.bit_move);
         mov.score =
-            -my_alpha_beta_search(board, -beta, -alpha, depth - 1, net, inverse_value).score;
+            -my_alpha_beta_search(board, -beta, -alpha, depth - 1, net, net_black, inv_val).score;
         board.undo_move();
 
         if mov.score > alpha {
@@ -158,60 +209,3 @@ pub fn my_alpha_beta_search<T: Model + Serialize + Clone>(
 
     best_move
 }
-
-pub fn shorten_alpha_beta<T: Model + Serialize + Clone>(
-    board: &mut Board,
-    mut alpha: f32,
-    beta: f32,
-    depth: u16,
-    net: &mut Orchestra<T>,
-    inverse_value: bool, // false - for white, true for black
-    n_top: usize, // each call we analyze only N best moves
-) -> (BitMove, f32) {
-    if depth == 0 {
-        let enc_b = encode_board(board, 0.0).unwrap();
-        let out_net = net.eval_one(enc_b.input).unwrap();
-        let out_net_b = out_net.borrow();
-        let mut score = out_net_b.first().unwrap() * 15000.0;
-
-        if inverse_value {
-            score = score * -1.0;
-        }
-
-        let score_move = ScoringMove::new_score(BitMove::new(0), score as i16);
-
-        return (score_move.bit_move, score as f32);
-    }
-
-    let moves = board.generate_scoring_moves();
-
-    if moves.is_empty() {
-        if board.in_check() {
-            return (BitMove::new(0), MATE_V as f32);
-        } else {
-            return (BitMove::new(0), DRAW_V as f32);
-        }
-    }
-
-    let mut best_move = (BitMove::new(0), alpha as f32);
-
-    let mut best_n_moves = generate_top_n_moves(board, net, n_top);
-
-    for mov in best_n_moves.iter_mut() {
-        board.apply_move(mov.0);
-        mov.1 =
-            -shorten_alpha_beta(board, -beta, -alpha, depth - 1, net, inverse_value, n_top).1;
-        board.undo_move();
-
-        if mov.1 > alpha as f32 {
-            alpha = mov.1 as f32;
-            if alpha >= beta {
-                return *mov;
-            }
-            best_move = (mov.0, mov.1);
-        }
-    }
-
-    best_move
-}
-

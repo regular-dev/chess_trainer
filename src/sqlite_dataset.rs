@@ -186,6 +186,7 @@ pub fn encode_board(b: &mut Board, eval: f32) -> Option<LabeledEntry> {
         }
     }
 
+    /*
     if b.turn() == Player::White {
         inp_vec.push(1.0);
         inp_vec.push(0.0);
@@ -193,6 +194,7 @@ pub fn encode_board(b: &mut Board, eval: f32) -> Option<LabeledEntry> {
         inp_vec.push(0.0);
         inp_vec.push(1.0);
     }
+    */
 
     let arr = Array::from_shape_vec(inp_vec.len(), inp_vec);
 

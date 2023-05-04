@@ -55,8 +55,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .long("state")
                         .help("Continue train model from some state")
                         .takes_value(true)
-                        .required(false)
+                        .required(false),
                 )
+                .arg(
+                    Arg::new("Out")
+                        .long("out")
+                        .help("Specifies the model state filename")
+                        .takes_value(true)
+                        .default_value("chess_net"),
+                ),
         )
         .subcommand(
             Command::new("dataset_info")
@@ -71,12 +78,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .subcommand(
             Command::new("test")
                 .arg(
-                    Arg::new("ModelState")
-                        .short('s')
-                        .long("state")
-                        .help("Provide solver state. Weights state to start training")
+                    Arg::new("ModelStateWhite")
+                        .long("state_white")
+                        .help("Trained model for white's turn")
                         .takes_value(true)
-                        .require_equals(true)
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("ModelStateBlack")
+                        .long("state_black")
+                        .help("Trained model for black's turn")
+                        .takes_value(true)
                         .required(true),
                 )
                 .arg(
@@ -106,9 +118,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .subcommand(
             Command::new("play")
                 .arg(
-                    Arg::new("ModelState")
-                        .long("state")
+                    Arg::new("ModelStateWhite")
+                        .long("state_white")
                         .help("Trained model state file")
+                        .takes_value(true)
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("ModelStateBlack")
+                        .long("state_black")
+                        .help("Trained model for black's turn")
                         .takes_value(true)
                         .required(true),
                 )

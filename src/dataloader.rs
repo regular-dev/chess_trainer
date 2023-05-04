@@ -78,8 +78,17 @@ impl DataLoader for SqliteChessDataloader {
             let fen: String = row.get_unwrap(0);
             let mut eval: f32 = row.get_unwrap(1);
 
-            // normalize eval
-            eval = (eval + 25.0) / 50.0;
+            // clamp (-20.0 | 20.0) eval
+            if eval > 20.0 {
+                eval = 20.0;
+            }
+
+            if eval < -20.0 {
+                eval = -20.0;
+            }
+
+            // minmax normalize eval
+            eval = (eval + 20.0) / 40.0;
 
             let mut board = Board::from_fen(&fen)
                 .expect("[SqliteChessDataLoader] Failed to create board from fen");

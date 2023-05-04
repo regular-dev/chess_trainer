@@ -30,14 +30,14 @@ pub fn train_continue(
 
 pub fn fill_model_with_layers(mdl: &mut Sequential, add_dropout: bool)
 {
-    let input_layer = InputLayer::new_box(900); // 8 * 8 * 14 + 4
+    let input_layer = InputLayer::new_box(898); // 8 * 8 * 14 + 2
     mdl.add_layer(input_layer);
 
     for i in 0..4 {
         let mut fc_layer = FcLayer::new_box(900 - i * 100, leaky_relu_activation!());
 
         if add_dropout {
-            fc_layer.set_dropout(0.15);
+            fc_layer.set_dropout(0.13);
         }
 
         mdl.add_layer(fc_layer);
@@ -51,7 +51,7 @@ pub fn fill_model_with_layers(mdl: &mut Sequential, add_dropout: bool)
 
 pub fn fill_ocl_model_with_layers(mdl: &mut SequentialOcl, add_dropout: bool) 
 {
-    let input_layer = Box::new(InputLayerOcl::new(900)); // 8 * 8 * 14 + 4
+    let input_layer = Box::new(InputLayerOcl::new(898)); // 8 * 8 * 14 + 2
     // TODO : maybe add constructor like InputDataLayer::new_box
     mdl.add_layer(input_layer);
 
@@ -59,7 +59,7 @@ pub fn fill_ocl_model_with_layers(mdl: &mut SequentialOcl, add_dropout: bool)
         let mut fc_layer = Box::new(FcLayerOcl::new(900 - i * 100, OclActivationFunc::LeakyReLU));
 
         if add_dropout {
-           fc_layer.set_dropout(0.12);
+           fc_layer.set_dropout(0.13);
         }
 
         mdl.add_layer(fc_layer);
@@ -115,7 +115,7 @@ pub fn train_chess_ocl(args: &ArgMatches) -> Result<(), Box<dyn std::error::Erro
     let mut mdl = SequentialOcl::new()?;
 
     fill_ocl_model_with_layers(&mut mdl, true);
-    mdl.set_batch_size(32);
+    mdl.set_batch_size(16);
 
     if let Some(state) = args.get_one::<String>("State") {
         info!("Loading model state from {}", state);
@@ -124,22 +124,23 @@ pub fn train_chess_ocl(args: &ArgMatches) -> Result<(), Box<dyn std::error::Erro
 
     // Optimizer
     {
-        let mut opt = Box::new(OptimizerOclRms::new(3e-4, mdl.queue()));
-        opt.set_alpha(0.87);
+        let mut opt = Box::new(OptimizerOclAdam::new(3e-4, mdl.queue()));
+        // opt.set_alpha(0.9);
         mdl.set_optim(opt);
     }
 
     let mut net = Orchestra::new(mdl);
+    net.name = args.get_one::<String>("Out").unwrap().clone();
 
     net.set_train_dataset(dataset);
-    net.set_snap_iter(30_000);
+    net.set_snap_iter(200_000);
     net.set_learn_rate_decay(0.8);
-    net.set_learn_rate_decay_step(100_000);
+    net.set_learn_rate_decay_step(200_000);
     net.set_write_err_to_file(true);
     net.set_save_on_finish_flag(true);
 
     let now = Instant::now();
-    net.train_epochs_or_error(20, 1e-3)?;
+    net.train_epochs_or_error(100, 1e-3)?;
     info!("Training finished, elapsed : {} seconds", now.elapsed().as_secs());
 
     Ok(())
