@@ -6,6 +6,7 @@ import sys
 
 if len(sys.argv) != 2:
     print("Invalid number of arguments!")
+    print("Usage python pgn_to_db.py <pgn_input_file>")
     exit(0)
 
 __games_limit = 10000 # you can change this number if you want to increase dataset

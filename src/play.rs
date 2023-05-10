@@ -1,5 +1,4 @@
 use pleco::Piece;
-use pleco::ScoringMove;
 use serde::Serialize;
 
 use log::info;
@@ -14,7 +13,6 @@ use pleco::{core::masks::SQ_DISPLAY_ORDER, SQ};
 
 use std::{error::Error, io};
 
-use crate::sqlite_dataset::encode_board;
 use crate::test::*;
 use crate::train::*;
 
@@ -23,6 +21,7 @@ pub fn play_chess(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
     let file_path_black = args.get_one::<String>("ModelStateBlack").unwrap();
     let is_ocl = args.contains_id("Ocl");
     let is_fen = args.contains_id("Fen");
+    let unicode = args.contains_id("UnicodeDisplay");
     let mut depth = args.get_one::<u16>("Depth").unwrap().clone();
 
     if depth == 0 {
@@ -36,10 +35,16 @@ pub fn play_chess(args: &ArgMatches) -> Result<(), Box<dyn Error>> {
             file_path_black.clone(),
             is_fen,
             depth,
+            unicode,
         )?;
     } else {
-        //play_chess_cpu(file_path.clone(), is_fen, depth)?;
-        todo!("CPU")
+        play_chess_cpu(
+            file_path_white.clone(),
+            file_path_black.clone(),
+            is_fen,
+            depth,
+            unicode,
+        )?;
     }
 
     Ok(())
@@ -50,6 +55,7 @@ fn play_chess_ocl(
     model_state_black: String,
     display_fen: bool,
     d: u16,
+    unicode: bool,
 ) -> Result<(), Box<dyn Error>> {
     let mut mdl_white = SequentialOcl::new()?;
     fill_ocl_model_with_layers(&mut mdl_white, false);
@@ -59,17 +65,25 @@ fn play_chess_ocl(
     fill_ocl_model_with_layers(&mut mdl_black, false);
     mdl_black.load_state(&model_state_black)?;
 
-    continue_play(mdl_white, mdl_black, display_fen, d)
+    continue_play(mdl_white, mdl_black, display_fen, d, unicode)
 }
 
-fn play_chess_cpu(model_state: String, display_fen: bool, d: u16) -> Result<(), Box<dyn Error>> {
-    let mut mdl = Sequential::new();
-    fill_model_with_layers(&mut mdl, false);
-    mdl.load_state(&model_state)?;
+fn play_chess_cpu(
+    model_state_white: String,
+    model_state_black: String,
+    display_fen: bool,
+    d: u16,
+    unicode: bool,
+) -> Result<(), Box<dyn Error>> {
+    let mut mdl_white = Sequential::new();
+    fill_model_with_layers(&mut mdl_white, false);
+    mdl_white.load_state(&model_state_white)?;
 
-    todo!("CPU")
+    let mut mdl_black = Sequential::new();
+    fill_model_with_layers(&mut mdl_black, false);
+    mdl_black.load_state(&model_state_black)?;
 
-    // continue_play(mdl, display_fen, d)
+    continue_play(mdl_white, mdl_black, display_fen, d, unicode)
 }
 
 fn read_string_from_stdin(stdin: &io::Stdin) -> Result<String, Box<dyn Error>> {
@@ -100,6 +114,7 @@ fn continue_play<T: Model + Serialize + Clone>(
     mdl_black: T,
     display_fen: bool,
     d: u16,
+    unicode: bool,
 ) -> Result<(), Box<dyn Error>> {
     // initialize orchestra
     let mut orc_white = Orchestra::new_for_eval(mdl_white).test_batch_size(1);
@@ -130,7 +145,7 @@ fn continue_play<T: Model + Serialize + Clone>(
             println!("Fen : {}", board.fen());
         }
 
-        print_board(&mut board);
+        print_board(&mut board, unicode);
 
         if turn == Turn::Player {
             do_player_step(&stdin, &mut board)?;
@@ -141,6 +156,8 @@ fn continue_play<T: Model + Serialize + Clone>(
 
         turn.switch();
     }
+
+    println!("Checkmate!");
 
     Ok(())
 }
@@ -166,19 +183,24 @@ fn do_bot_step<T: Model + Serialize + Clone>(
     depth: u16,
 ) -> Result<(), Box<dyn Error>> {
     if b.moves_played() < 2 {
-        // first 2 moves are random
+        // first move is random
         let rand_moves = b.generate_moves();
         let mut rng = rand::thread_rng();
         b.apply_move(rand_moves[rng.gen_range(0..rand_moves.len()) as usize]);
     } else if b.moves_played() < 4 {
-        let is_inv = if b.turn() == pleco::Player::White { depth % 2 == 1 } else { depth % 2 == 0 };
-        let best_move = my_alpha_beta_search(b, -15000, 15000, 2, orc, orc_black, false);
+        let is_inv = if b.turn() == pleco::Player::White {
+            depth % 2 == 1
+        } else {
+            depth % 2 == 0
+        };
+        let best_move = my_alpha_beta_search(b, -15000, 15000, 2, orc, orc_black, is_inv);
         b.apply_move(best_move.bit_move);
     } else {
-        let is_inv = if b.turn() == pleco::Player::White { depth % 2 == 1 } else { depth % 2 == 0 };
-
-        // let best_move = my_minimax(b, depth, orc, orc_black, is_inv);
-
+        let is_inv = if b.turn() == pleco::Player::White {
+            depth % 2 == 1
+        } else {
+            depth % 2 == 0
+        };
         let best_move = my_alpha_beta_search(b, -16000, 16000, depth, orc, orc_black, is_inv);
         b.apply_move(best_move.bit_move);
     }
@@ -188,11 +210,11 @@ fn do_bot_step<T: Model + Serialize + Clone>(
     Ok(())
 }
 
-fn print_board(b: &mut Board) {
+fn print_board(b: &mut Board, unicode: bool) {
     let mut out_str = String::with_capacity(64 * 4);
 
-    let top_heading = vec!['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
-    let left_heading = vec!['1', '2', '3', '4', '5', '6', '7', '8'];
+    let top_heading = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+    let left_heading = ['1', '2', '3', '4', '5', '6', '7', '8'];
 
     out_str.push(' ');
     out_str.push(' ');
@@ -214,8 +236,11 @@ fn print_board(b: &mut Board) {
         let op = b.piece_at_sq(SQ(*sq));
 
         let char = if op != Piece::None {
-            //op.character_lossy()
-            piece_to_pretty_char(&op)
+            if unicode {
+                piece_to_pretty_char(&op)
+            } else {
+                piece_to_simple_char(&op)
+            }
         } else {
             '-'
         };
@@ -252,5 +277,23 @@ fn piece_to_pretty_char(p: &Piece) -> char {
         Piece::BlackRook => '♜',
         Piece::BlackQueen => '♛',
         Piece::BlackKing => '♚',
+    }
+}
+
+fn piece_to_simple_char(p: &Piece) -> char {
+    match p {
+        Piece::None => panic!(),
+        Piece::WhitePawn => 'P',
+        Piece::WhiteKnight => 'N',
+        Piece::WhiteBishop => 'B',
+        Piece::WhiteRook => 'R',
+        Piece::WhiteQueen => 'Q',
+        Piece::WhiteKing => 'K',
+        Piece::BlackPawn => 'p',
+        Piece::BlackKnight => 'n',
+        Piece::BlackBishop => 'b',
+        Piece::BlackRook => 'r',
+        Piece::BlackQueen => 'q',
+        Piece::BlackKing => 'k',
     }
 }

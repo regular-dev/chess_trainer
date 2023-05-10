@@ -1,5 +1,3 @@
-use std::char::MAX;
-
 use pleco::*;
 
 const PRICE_PAWN: f32 = 1.0;

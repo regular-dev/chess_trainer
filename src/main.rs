@@ -63,6 +63,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .help("Specifies the model state filename")
                         .takes_value(true)
                         .default_value("chess_net"),
+                )
+                .arg(
+                    Arg::new("EpochsNum")
+                        .long("epochs")
+                        .help("Specify number of epochs")
+                        .takes_value(true)
+                        .default_value("50")
+                        .value_parser(clap::value_parser!(usize)),
                 ),
         )
         .subcommand(
@@ -141,15 +149,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Arg::new("Fen")
                         .long("fen")
                         .help("Display fen notation")
-                        .takes_value(false),
                 )
                 .arg(
                     Arg::new("Depth")
                         .long("depth")
-                        .help("Depth for bot's search")
+                        .help("Depth for bot's search. Use values from 1 to 4.")
                         .takes_value(true)
                         .value_parser(clap::value_parser!(u16))
                         .default_value("2"),
+                )
+                .arg(
+                    Arg::new("UnicodeDisplay")
+                        .long("unicode")
+                        .help("Use unicode characters to display board state")
                 ),
         )
         .subcommand(
