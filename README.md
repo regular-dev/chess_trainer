@@ -41,3 +41,4 @@ Otherwise you could download it from official site and provide path to stockfish
     **--depth** specifies the depth of move search for alpha-beta algorithm. I suggest to use values from 1 to 4. Big depth values(>4) will make the algorithm take a lot of time to search best move.
     
 ## GIF
+![demo](https://github.com/regular-dev/chess_trainer/blob/master/doc/demo1.gif?raw=true)
